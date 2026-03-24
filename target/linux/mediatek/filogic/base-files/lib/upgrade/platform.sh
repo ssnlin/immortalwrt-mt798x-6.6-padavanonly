@@ -62,10 +62,83 @@ xiaomi_initial_setup()
 	esac
 }
 
+get_fw_env()
+{
+	fw_printenv -n "$1" 2>/dev/null
+}
+
+set_dual_ubi_upgrade_parts()
+{
+	local kern_ubipart root_ubipart prio
+
+	kern_ubipart="$(get_fw_env sysupgrade_kernel_ubipart)"
+	root_ubipart="$(get_fw_env sysupgrade_rootfs_ubipart)"
+
+	if [ -z "$kern_ubipart" ] && [ -z "$root_ubipart" ]; then
+		prio="$(get_fw_env priority_root)"
+		case "$prio" in
+		ubi)
+			kern_ubipart="ubi2"
+			root_ubipart="ubi2"
+			;;
+		ubi2)
+			kern_ubipart="ubi"
+			root_ubipart="ubi"
+			;;
+		esac
+	fi
+
+	[ -z "$root_ubipart" ] && root_ubipart="$kern_ubipart"
+	[ -z "$kern_ubipart" ] && kern_ubipart="$root_ubipart"
+
+	if [ -z "$kern_ubipart" ] || [ -z "$root_ubipart" ]; then
+		echo "dual-ubi: unable to determine inactive UBI partition" >&2
+		return 1
+	fi
+
+	CI_KERN_UBIPART="$kern_ubipart"
+	CI_ROOT_UBIPART="$root_ubipart"
+	return 0
+}
+
+set_ab_upgrade_parts()
+{
+	local prio kern_part root_part
+
+	prio="$(get_fw_env priority_root)"
+	case "$prio" in
+	kernel|rootfs)
+		kern_part="kernel_1"
+		root_part="rootfs_1"
+		;;
+	kernel_1|rootfs_1)
+		kern_part="kernel"
+		root_part="rootfs"
+		;;
+	esac
+
+	if [ -z "$kern_part" ] || [ -z "$root_part" ]; then
+		echo "ab: unable to determine inactive kernel/rootfs partitions" >&2
+		return 1
+	fi
+
+	CI_KERNPART="$kern_part"
+	CI_ROOTPART="$root_part"
+	return 0
+}
+
 platform_do_upgrade() {
 	local board=$(board_name)
 
 	case "$board" in
+	cmcc,a10-dual-ubi)
+		set_dual_ubi_upgrade_parts || return 1
+		nand_do_upgrade "$1"
+		;;
+	cmcc,a10-ab-system)
+		set_ab_upgrade_parts || return 1
+		nand_do_upgrade "$1"
+		;;
 	netcore,n60-pro|\
 	tplink,tl-xdr4288|\
         tplink,tl-xdr6086|\
